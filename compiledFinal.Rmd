@@ -1,5 +1,5 @@
 ---
-title: "Final Project - Sentiment Analysis with Airlines"
+title: "Sentiment Analysis with Airlines"
 output:
   html_document:
     df_print: paged
@@ -87,46 +87,6 @@ raw_tweets %>%
   tally()
 
 ```
-Seems good, if we want to use
-
-## Check airline_sentiment_confidence
-```{r}
-summary(raw_tweets$airline_sentiment_confidence)
-```
-## Check negativereason_confidence
-```{r}
-summary(raw_tweets$negativereason_confidence)
-```
-4118 NA's is a lot - Probably can't just remove all these values if we want to use. Might need to substitute average or something along those lines. 
-
-
-
-## Check airlinesentiment_gold
-Sidenote - what is this? 
-```{r}
-raw_tweets %>%
-  group_by(airline_sentiment_gold) %>%
-  tally()
-```
-Only 40 values, probably not useful 
-
-## negativereason_gold
-```{r}
-raw_tweets %>%
-  group_by(negativereason_gold) %>%
-  tally()
-
-```
-Not many values here. Can we use these? Need to remove "\n" if so.
-
-
-## retweet_count 
-```{r}
-raw_tweets %>%
-  ggplot(aes(retweet_count)) +
-  geom_histogram()
-```
-Mostly 0's 
 
 ## Cleaning text 
 ```{r}
@@ -192,9 +152,7 @@ wordCount <- function(tweetsDF) {
 ```{r, "Extract Hashclouds function"}
 ### hashtags
 
-getHashTags <- function(tweetsDF) {
-  # This is an ugly, iterative way to do this, but I cobbled it together in the
-  # middle of the night from something else. It works. Don't touch it.  
+getHashTags <- function(tweetsDF) { 
   extractTags <- function(tweets) {
     hashVector <- str_extract_all(string = tweets, pattern = '#\\S+', simplify = TRUE) %>% as.character()
     if (length(hashVector) > 0 ) {
@@ -211,94 +169,10 @@ getHashTags <- function(tweetsDF) {
 ```
 
 
-```{r, "biGram and triGram Functions and Network"}
-### build nGrams
-#### BiGrams
-buildBiGrams <- function(cleanTweetsDF) {
-  # originally was passing n in to stick to a single function
-  # but this causes problems during the seperate, so this is 
-  # fixed at 2, i.e., bigrams
-  n <- 2
-  
-  nGramWords <- cleanTweetsDF %>% 
-    unnest_tokens(
-      input = text, 
-      output = nGram, 
-      token = 'ngrams', 
-      n = n
-    ) %>% 
-    filter(! is.na(nGram))
-  
-  
-  nGramWords <- nGramWords %>% 
-    separate(col = nGram, into = c('word1', 'word2'), sep = ' ') %>% 
-    filter(! is.na(word1)) %>% 
-    filter(! is.na(word2)) 
-  
-  
-  nGramCount <- nGramWords %>% 
-    count(word1, word2, sort = TRUE) %>% 
-    # rename the "n" (count) column to "weight"
-    # for igraph scaling
-    rename(weight = n) 
-  
-  return(nGramCount)
-}
-
-#### TriGrams
-buildTriGrams <- function(cleanTweetsDF) {
-  # see note in bigram build
-  n <- 3
-  
-  nGramWords <- cleanTweetsDF %>% 
-    unnest_tokens(
-      input = text, 
-      output = nGram, 
-      token = 'ngrams', 
-      n = n
-    ) %>% 
-    filter(! is.na(nGram))
-  
-  
-  nGramWords <- nGramWords %>% 
-    separate(col = nGram, into = c('word1', 'word2', 'word3'), sep = ' ') %>% 
-    filter(! is.na(word1)) %>% 
-    filter(! is.na(word2)) %>%
-    filter(! is.na(word3))
-  
-  nGramCount <- nGramWords %>% 
-    count(word1, word2, word3, sort = TRUE) %>% 
-    # rename the "n" (count) column to "weight"
-    # for igraph scaling
-    rename(weight = n) 
-  
-  return(nGramCount)
-}
-
-## build network
-nGramNet <- function(nGramCount) {
-  # the scaling weight helps with sizing of nodes,
-  # these values were trial and error and best not to
-  # mess with
-   scaleWeight <- function(x, lambda = 1E2) {x / lambda}
-  
-    network <-  nGramCount %>%
-    filter(weight > threshold) %>%
-    mutate(weight = scaleWeight(x = weight, lambda = 1E2)) %>% 
-    graph_from_data_frame(directed = FALSE)
-  
-  # get degree of each Vertex
-  V(network)$degree <- strength(graph = network)
-  # compute edge weights
-  E(network)$width <-E(network)$weight/max(E(network)$weight)
-}
-```
 
 
 ```{r, "WordClouds and nGrams plotting functions"}
 ### plots
-# because we are running multiple plots with different data, but identical
-# parameters, we will define what we want here, and pass the data in later
 #### wordcount
 
 
@@ -313,56 +187,6 @@ wordCountPlot <- function(theWords, number = 25) {
     coord_flip() +
     ggtitle(label = glue('{number} most frequent words'))
 } 
-
-#### plot nGrams
-
-# global scaling for visual, it's a thing, again via trial and error
-# don't worry about it
-scaleWeight <- function(x, lambda = 1E3) {
-  x / lambda
-}
-
-
-
-nGramPlot<-function(nGramCount,threshold = 25, nGramPlotTypeLabel=0, nGramPlotDataLabel = "All Airlines") {
-  # dumb hack for titling the plots, but makes them look better
-  if (nGramPlotTypeLabel == 2) {
-    plotTitle <- "biGram Count Network"
-  } else if (nGramPlotTypeLabel == 3) {
-    plotTitle <- "triGram Count Network"
-  } else {
-    plotTitle <- "nGram Count Network"
-  }
-  
-  plotTitle <- glue('{plotTitle}, {nGramPlotDataLabel}')
-  network <-  nGramCount %>%
-    filter(weight > threshold) %>%
-    mutate(weight = scaleWeight(x = weight, lambda = 750)) %>% 
-    graph_from_data_frame(directed = FALSE)
-  
-  # get degree of each Vertex
-  V(network)$degree <- strength(graph = network)
-  # compute edge weights
-  E(network)$width <-E(network)$weight/max(E(network)$weight)
-  
-  plot(
-    network, 
-    
-    vertex.color = 'blue',
-    vertex.size = 5*V(network)$degree,
-    vertex.label.color = 'black', 
-    vertex.label.cex = 0.7, 
-    vertex.label.dist = 1,
-    
-    edge.color = 'gray',
-    edge.width = 3*E(network)$width ,
-    
-    main = plotTitle, 
-    sub = glue('Weight Threshold: {threshold}'), 
-    
-    alpha = 50
-  )
-}
 
 wordCloudPlot <- function(wordCounts, threshold = 10, scale = c(.5,2)) {
   wordcloud(
@@ -403,115 +227,7 @@ wordCloudPlot(hashCounts, threshold = 10, scale = c(0.25,.75))
 
 ```
 
-In this analysis we determine which users churn between airlines. All users who are between each cluster (minus US Airways and American Airlines) expresses a negative sentiment towards one cluser, but a NA sentiment towards the other, suggesting Churn between an Airliner. 
-
-NOTE: American Airlines and US Airways share a high customer base because American Airlines brought  US Airways in 2015.
-
-
-Data Cleaning
-```{r data cleaning}
-library("dplyr", warn.conflicts = FALSE, quietly = TRUE)
-library("data.table", warn.conflicts = FALSE, quietly = TRUE)
-library("reshape", warn.conflicts = FALSE, quietly = TRUE)
-library("networkD3", warn.conflicts = FALSE, quietly = TRUE)
-library("grDevices", warn.conflicts = FALSE, quietly = TRUE)
-
-# dat <- fread("C:\\Users\\pujap\\Desktop\\final project\\Tweets-1.csv", integer64 = "character")
-
-tidy_tweets <- fread("C:\\Users\\pujap\\Desktop\\final project\\tidy_tweets.csv", integer64 = "character") # Ean's tidy_tweets df
-network <- tidy_tweets %>% select(name, airline) # select only users from dataset
-network <- network %>% group_by(name, airline) %>% tally() %>% arrange(desc(n)) # get weights
-network <- network %>% dplyr::rename(weight = "n") # rename vars
-network <- network %>% dplyr::rename(to = "name", from = "airline") # rename vars
 ```
-
-
-Create list of unique usernames for analysis
-```{r create usernames}
-# get unique users
-usernames <- unique(c(network$to, network$from)) # grab only unique names
-
-```
-
-Create a list of nodes to use in our analysis. A node in our case is a Twitter User
-```{r create notes}
-# create nodes
-nodes <- data.frame(id = 1:length(usernames),label = unique(usernames))
-nodes <- as_tibble(nodes)
-```
-
-
-Create a list of edges to use in our analysis. An edge in our case is the first mention in tweet
-```{r create edges list}
-edges_to_id <- match(network$to, nodes$label)
-edges_from_id <- match(network$from, nodes$label)
-edges <- data.frame(cbind(edges_to_id, edges_from_id))
-edges <- edges %>% dplyr::rename(to = "edges_to_id", from = "edges_from_id")
-edges <- as_tibble(edges)
-edges <- edges %>% group_by(to, from) %>% tally() %>% arrange(desc(n))
-edges <- edges %>% dplyr::rename(weight = "n")
-
-```
-
-Create Network plot
-```{r create network}
-
-nodes_d3 <- mutate(nodes, id = id - 1)
-edges_d3 <- mutate(edges, from = from - 1, to = to - 1)
-
-
-plot_network <- forceNetwork(
-  Links = edges_d3,
-  Nodes = nodes_d3,
-  Source = "from",
-  Target = "to",
-  NodeID = "label",
-  Group = "id",
-  Value = "weight",
-  opacity = 1,
-  fontSize = 16,
-  height = dev.size("px")[2], # grab users screen dims
-  width = dev.size("px")[1], # grab users screen dims
-  zoom = TRUE,
-  legend = FALSE,
-  opacityNoHover = TRUE,
-  bounded = FALSE
-)
-
-plot_network
-
-# save plot as HTML
-# networkD3::saveNetwork(plot_network, "network2.html", selfcontained = TRUE)
-
-```
-
-
-
-
-```{r hubscores}
-routes_igraph <- graph_from_data_frame(d = edges, vertices = nodes, directed = TRUE)
-h_scores <- data.frame(hub_scores = hub_score(routes_igraph, weights = edges$weight)$vector,
-                       name = nodes$label,
-                       user_id = nodes$id)
-h_scores <- h_scores %>% arrange(desc(hub_scores)) %>% filter(hub_scores > .85)
-
-high_hub_tweets <- inner_join(h_scores, tidy_tweets)
-high_hub_tweets <- high_hub_tweets %>% arrange(name,tweet_created_clean)
-
-```
-
-```{r high_hub network}
-high_hub_tweets_top10 <- high_hub_tweets %>% filter(hub_scores > .9)
-
-#######
-
-ggplot(high_hub_tweets_top10, aes(tweet_created_clean, airline)) +
-  geom_tile(aes(fill = airline_sentiment))+
-  theme(axis.text.x = element_text(angle=45, hjust = 1)) +
-  facet_wrap(~name)
-
-```
-```{r}
 #Clean data provided by Ean
 raw_data <- fread(here::here("final project", "Tweets-1.csv"), integer64 = "character")
 
@@ -647,155 +363,3 @@ by_airline_2 %>%
 
 ##Analysis and Conclusions
 For the sentiment analysis I used the NRC lexicon. This contains eight basic emotions: anger, fear, anticipation, trust, surprise, sadness, joy, and disgust. I felt like this lexicon was better suited for this dataset since the goal is to improve customer service. This will give much better insight into how the customers are feeling instead of just "positive" and "negative". In order to see the overall sentiment for each airline I did a ratio percentage for each airline for each emotion. Overall, the sentiment was similar for each airline. Virgin America had a slight lead with a 23% ratio for positive sentiments and United had a slight lead with 17% for negative sentiments. It is difficult to tell the exact reasons for these feelings, so it is hard to come up with solutions on exactly how to improve customer service. However, based off of the similar ratio for each airline, it appears to be an industry issue rather than just one specific airline. 
-
-## Loading the data
-First load the data. Here I simply read the cleaned CSV file that Ean made. 
-You will need to change the string to match path to your copy of the CSV. 
-
-```{r}
-#Read in the cleaned .csv Twitter data
-clean_tweets <- read.csv("Clean Tweets April 6.csv")
-```
-
-## Make a Term Document Matrix
-
-### Create subsets of tweets by sentiment
-While a single dendrogram could reveal some interesting insights, separating it out into separate groups will be more interesting. To accomplish this I have written a function that filters individually for each sentiment from the cleaned data set. 
-
-```{r}
-#Function to filter and return text of tweets associated with specific airlines
-filter_sentiment <- function(df, sentiment) {
-        require(dplyr)
-        
-        tweet_df <- filter(df, sentiment == airline_sentiment)
-        
-        return(tweet_df$text)
-}
-
-#Vector of airlines
-airlines <- unique(clean_tweets$sentiment)
-
-#Subset tweet data by airline
-text_neu <- filter_sentiment(clean_tweets, "neutral")
-text_pos <- filter_sentiment(clean_tweets, "positive")
-text_neg <- filter_sentiment(clean_tweets, "negative")
-```
-
-### Clean Tweet text by removing stopwords
-While Ean did a good job of cleaning the data, I want to go one step further. Since it was really simple I do it on my own here. I remove all stop-words from the tweet texts. The way I did it also leaves room for me to add more stopwords if I want to later. 
-
-```{r}
-#Load libraries
-require(tm)
-
-custom_stops <- stopwords("en")
-
-text_all <- removeWords(clean_tweets$text, custom_stops)
-
-text_neu <- removeWords(text_neu, custom_stops)
-text_pos <- removeWords(text_pos, custom_stops)
-text_neg <- removeWords(text_neg, custom_stops)
-```
-
-### Make the Term Document Matrix
-To make the dendrogram, I first need to make a Term Document Matrix. This has been covered in the class before. First I create a vector source object. Then I make a corpus to then convert into a Term Document Matrix. 
-
-```{r}
-#Function for creating a TDM
-makeTDM <- function(x) {
-        x_source <- VectorSource(x)
-        x_corpus <- VCorpus(x_source)
-        x_tdm <- TermDocumentMatrix(x_corpus)
-        
-        return(x_tdm)
-}
-
-#Make the TDM's
-tdm_all <- makeTDM(text_all)
-
-tdm_neu <- makeTDM(text_neu)
-tdm_pos <- makeTDM(text_pos)
-tdm_neg <- makeTDM(text_neg)
-```
-
-## Removing Sparse Terms
-There are a lot of terms that are not used very much, while I want to get as many as I can in this visual, there are limits. A sparsity of 0.98 for each groups is good here. 
-
-```{r}
-#Remove sparse terms
-sparse_tdm_all <- removeSparseTerms(tdm_all, sparse = 0.98)
-
-sparse_tdm_neu <- removeSparseTerms(tdm_neu, sparse = 0.98)
-sparse_tdm_pos <- removeSparseTerms(tdm_pos, sparse = 0.98)
-sparse_tdm_neg <- removeSparseTerms(tdm_neg, sparse = 0.98)
-```
-
-## Plot as a dendrogram
-Here I am creating a dendrogram which will visualize the hierarchical relationships of the terms in this data set. 
-
-### Preparing data for plotting
-First I create a distance matrix which immediately gets turned into hierarchical cluster object. I reuse the function for each sentiment group. 
-
-```{r}
-#Function to prepare a TDM for dendrgoram plotting
-make_tree <- function(x) {
-        #Create distance matrix
-        dist <- dist(x)
-
-        #Find hierarchical clusters
-        hc <- hclust(dist)
-        
-        return(hc)
-}
-
-tree_all <- make_tree(sparse_tdm_all)
-
-tree_neu <- make_tree(sparse_tdm_neu)
-tree_pos <- make_tree(sparse_tdm_pos)
-tree_neg <- make_tree(sparse_tdm_neg)
-```
-
-
-###Plot it
-Finally I plot the model. This is fairly simple, the hclust object can use the generic function `plot()` to do all the plotting. I label each plot appropriately and modify the size of the text as needed. I also remove the labels for the y-axis for these plots because they do not contribute any usseful information and I am a fan of Tufte style visualizations. 
-
-```{r}
-#Plot it. 
-
-plot(tree_all, main = "Clustering for all groups", axes = FALSE, ylab = "")
-
-plot(tree_neu , main = "Clustering of Neutral Words", axes = FALSE, ylab = "")
-plot(tree_pos, main = "Clustering of Positive Words", axes = FALSE, ylab = "")
-plot(tree_neg , main = "Clustering of Negative Words", cex = 0.75, axes = FALSE, ylab = "")
-```
-
-I can also use the ape package to plot the same hierarchies as phylogenic trees to get more plot options and plot all of the trees in one visual. 
-
-```{r}
-#Load required libraries
-require(ape)
-
-#Create a list of the 3 phylo trees
-phylo_neu <- as.phylo(tree_neu)
-phylo_pos <- as.phylo(tree_pos)
-phylo_neg <- as.phylo(tree_neg)
-
-all_trees <- list(phylo_neu, phylo_pos, phylo_neg)
-class(all_trees) <- "multiPhylo"
-
-plot(all_trees, layout = 4, 
-     #type = "radial", 
-     no.margin = TRUE, 
-     cex = 0.5)
-```
-
-## Analysis and Conclusions
-From this we can find find some interesting details from the data. One thing from the hierarchical clustering we get is common word pairs are closer together. In the overall group we can see a lot of clusters for common word pairings we would expect to see in this data set such as: "late flight", "call back", "hold hours", et cetera. 
-
-In the neutral tweets group we see many of the same groupings, although there are fewer leaves because this is a smaller subset of the original data. Although there are a couple of interesting clusters, such as "fly see", which could likely be someone saying they want to or planning to fly to see something. The neutral sentiment tweets seem to focus on discussion about flying rather than the quality of the service. 
-
-In the positive tweets group there are more clusters that either are referring to the service directly and or using words of appreciation with a couple of clusters that refer to their experience, these are pairings such as "gate made" and "can see". 
-
-The negative tweets are interesting becuse this group is bigger than the previous two combined. The negative sentiment tweets has multiple clusters that mention terms that refer to time and waiting such as, "hold hours" and "hour waiting". There are also clusters that make direct attacks or claims such as "worst airline" and "never fly". These clusters may be interesting to investigate because these seem to be terms the most upset customers will be using. Other clusters seem to be focused on other aspects of an airline's services such as baggage handling and timely arrival of flights. 
-
-Of these clusters the negative sentiment tweets will be the most helpful in improving customer service. These hierarchies also provide insight into how to focus queries for other analytical methods such nGram, network, or sentiment analysis. Neutral sentiment tweets will not be as helpful because they do not mention anything good or bad. The postive sentiment tweets though may be helpful in identifying where service was done right and can help inform the airline as to what they should be doing more of. 
